@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Environment / editor
+.env
+.vscode/
+.idea/
+
+# ML artifacts — large binary files that shouldn't live in git
+models/*.onnx
+models/*.pth
+models/*.pt
+*.engine
+
+# Profiling / experiment output
+experiments/results/
+*.log
+*.csv
+!experiments/README.md
+
+# OS junk
+.DS_Store
+Thumbs.db
