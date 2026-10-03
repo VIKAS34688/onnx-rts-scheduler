@@ -1,6 +1,6 @@
 torch
 torchvision
 onnx
-onnxruntime-gpu
+onnxruntime-gpu==1.20.2
 numpy
 matplotlib
