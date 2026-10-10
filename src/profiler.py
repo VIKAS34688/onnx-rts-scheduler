@@ -17,14 +17,15 @@ lets us measure:
                        paper's unified-memory setup)
   - download time  -- device -> host copy (same)
 
-This is the measured PCIe overhead we committed to reporting honestly,
-rather than guessing at it.
-
 NOTE on outliers: our GTX 1650 is also rendering the Windows desktop
 while we profile -- the paper's embedded Jetson boards carry no such
 background load. We report percentiles (p50/p95/p99) alongside min/
-mean/max specifically so a rare OS-level stall doesn't get silently
-mistaken for the chunk's true steady-state worst case.
+mean/max so a rare OS-level stall isn't mistaken for the true worst case.
+
+NOTE on chunk inputs: only chunk 0 takes the image. Later chunks take an
+intermediate tensor with a fixed shape, so for any chunk whose declared
+input shape differs from the sample we build a random tensor of the right
+shape. Convolution/Gemm timing does not depend on the values.
 """
 
 import torch  # must be imported first -- registers PyTorch's bundled CUDA DLLs for Windows to find
@@ -53,6 +54,15 @@ def _print_stats(label: str, stats: dict):
           f"(n={stats['n_runs']})")
 
 
+def _input_for_session(session, sample_input: np.ndarray) -> np.ndarray:
+    """Return sample_input if it fits this chunk, else a random tensor of the chunk's own input shape."""
+    declared = session.get_inputs()[0].shape
+    shape = [d if isinstance(d, int) else 1 for d in declared]
+    if list(sample_input.shape) != shape:
+        return np.random.randn(*shape).astype(np.float32)
+    return sample_input
+
+
 def profile_chunk(chunk_onnx_path: str, sample_input: np.ndarray,
                    n_runs: int = 300, warmup: int = 10) -> dict:
     """
@@ -68,6 +78,7 @@ def profile_chunk(chunk_onnx_path: str, sample_input: np.ndarray,
     )
     input_name = session.get_inputs()[0].name
     output_name = session.get_outputs()[0].name
+    sample_input = _input_for_session(session, sample_input)
 
     # Upload once, outside the timed loop -- we're isolating compute here.
     gpu_input = ort.OrtValue.ortvalue_from_numpy(sample_input, "cuda", 0)
@@ -76,8 +87,8 @@ def profile_chunk(chunk_onnx_path: str, sample_input: np.ndarray,
     io_binding.bind_ortvalue_input(input_name, gpu_input)
     io_binding.bind_output(output_name, "cuda")  # keep output on GPU too
 
-    # Warmup -- first few runs include one-time CUDA context/kernel setup
-    # costs that would unfairly inflate the WCET estimate.
+    # Warmup -- first runs include one-time CUDA setup costs that would
+    # unfairly inflate the WCET estimate.
     for _ in range(warmup):
         session.run_with_iobinding(io_binding)
 
@@ -95,14 +106,15 @@ def measure_pcie_overhead(chunk_onnx_path: str, sample_input: np.ndarray,
                            n_runs: int = 300, warmup: int = 10) -> dict:
     """
     Measure the upload (host->device) and download (device->host) costs
-    SEPARATELY from compute time -- this is the overhead the paper's
-    Jetson setup does not have, that we committed to reporting honestly.
+    SEPARATELY from compute time -- the overhead the paper's Jetson setup
+    does not have, that we committed to reporting honestly.
     """
     session = ort.InferenceSession(
         chunk_onnx_path, providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
     )
     input_name = session.get_inputs()[0].name
     output_name = session.get_outputs()[0].name
+    sample_input = _input_for_session(session, sample_input)
 
     for _ in range(warmup):
         gpu_input = ort.OrtValue.ortvalue_from_numpy(sample_input, "cuda", 0)
@@ -140,10 +152,8 @@ def measure_pcie_overhead(chunk_onnx_path: str, sample_input: np.ndarray,
 
 
 if __name__ == "__main__":
-    # Quick manual check against AlexNet -- run this directly to
-    # sanity-check the profiler before wiring it into the
-    # schedulability loop. Close other apps first to reduce OS-level
-    # noise in the results.
+    # Quick manual check against AlexNet. Close other apps first to
+    # reduce OS-level noise in the results.
     sample = np.random.randn(1, 3, 224, 224).astype(np.float32)
 
     print("[INFO] Profiling compute time...")
