@@ -162,7 +162,8 @@ def min_blocking_budget(higher_priority_tasks) -> float:
 # Splitting optimization (Section VII, Algorithms 1 and 2)
 # ---------------------------------------------------------------------
 
-SEARCH_RUNS = 50  # profiling runs per chunk inside the search (speed vs. tightness)
+SEARCH_RUNS = 300       # profiling runs per chunk inside the search
+WCET_STAT = "p99_ms"    # estimator used as a chunk's WCET ("max_ms" = the paper's observed max)
 
 
 def _profile_config(model_path, active_points, sample_input, cache, tmp_dir):
@@ -174,7 +175,7 @@ def _profile_config(model_path, active_points, sample_input, cache, tmp_dir):
     if key in cache:
         return cache[key]
     chunk_paths = splitter.build_chunks(model_path, list(active_points), tmp_dir)
-    wcets = [profiler.profile_chunk(p, sample_input, n_runs=SEARCH_RUNS)["max_ms"]
+    wcets = [profiler.profile_chunk(p, sample_input, n_runs=SEARCH_RUNS)[WCET_STAT]
              for p in chunk_paths]
     cache[key] = wcets
     return wcets

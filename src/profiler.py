@@ -26,12 +26,19 @@ NOTE on chunk inputs: only chunk 0 takes the image. Later chunks take an
 intermediate tensor with a fixed shape, so for any chunk whose declared
 input shape differs from the sample we build a random tensor of the right
 shape. Convolution/Gemm timing does not depend on the values.
+
+NOTE on warmup: after an idle gap (for example while chunk files are being
+written) the GPU sits at low clocks, and a handful of ~0.3 ms runs finish
+before the clocks ramp up. Warmup is therefore time-based as well as
+count-based.
 """
 
 import torch  # must be imported first -- registers PyTorch's bundled CUDA DLLs for Windows to find
 import time
 import numpy as np
 import onnxruntime as ort
+
+WARMUP_SECONDS = 0.5   # warm up by time, so the GPU reaches full clocks before timing starts
 
 
 def _percentile_stats(times_ms: list) -> dict:
@@ -87,10 +94,13 @@ def profile_chunk(chunk_onnx_path: str, sample_input: np.ndarray,
     io_binding.bind_ortvalue_input(input_name, gpu_input)
     io_binding.bind_output(output_name, "cuda")  # keep output on GPU too
 
-    # Warmup -- first runs include one-time CUDA setup costs that would
-    # unfairly inflate the WCET estimate.
-    for _ in range(warmup):
+    # Warm up by TIME, not run count: after an idle gap the GPU sits at low
+    # clocks, and ~10 tiny runs are over before clocks ramp up.
+    warm_until = time.perf_counter() + WARMUP_SECONDS
+    runs = 0
+    while runs < warmup or time.perf_counter() < warm_until:
         session.run_with_iobinding(io_binding)
+        runs += 1
 
     times_ms = []
     for _ in range(n_runs):
