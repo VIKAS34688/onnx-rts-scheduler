@@ -23,7 +23,9 @@ symbol.
 Priority convention: lower priority NUMBER = higher priority.
 """
 
+import json
 import math
+import os
 
 TICK_MS = 0.001  # one discrete time unit = 1 microsecond
 
@@ -165,13 +167,30 @@ def min_blocking_budget(higher_priority_tasks) -> float:
 SEARCH_RUNS = 300       # profiling runs per chunk inside the search
 WCET_STAT = "p99_ms"    # estimator used as a chunk's WCET ("max_ms" = the paper's observed max)
 
+PROFILE_CACHE = {}                          # shared by every search: (model_path, active_points) -> chunk WCETs (ms)
+CACHE_FILE = "models/profile_cache.json"    # saved so later runs reuse the SAME measurements
+
+
+def save_profile_cache(path=CACHE_FILE):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        json.dump([[list(k[1]), k[0], v] for k, v in PROFILE_CACHE.items()], f, indent=1)
+
+
+def load_profile_cache(path=CACHE_FILE):
+    if os.path.exists(path):
+        with open(path) as f:
+            for points, model_path, wcets in json.load(f):
+                PROFILE_CACHE[(model_path, tuple(points))] = wcets
+    return len(PROFILE_CACHE)
+
 
 def _profile_config(model_path, active_points, sample_input, cache, tmp_dir):
     """Build + profile one split configuration; cached like the paper's profiling cache."""
     import splitter
     import profiler
 
-    key = tuple(active_points)
+    key = (model_path, tuple(active_points))
     if key in cache:
         return cache[key]
     chunk_paths = splitter.build_chunks(model_path, list(active_points), tmp_dir)
@@ -189,7 +208,7 @@ def optimal_split(task_name, priority, period_ms, deadline_ms, model_path,
     configurations -- the paper itself restricted itself to 5-11 points.
     Pass a SHORT candidate list (e.g. 5-8 block boundaries), not all 19.
     """
-    cache = {}
+    cache = PROFILE_CACHE
     B = min_blocking_budget(higher_priority_tasks)
 
     full = _profile_config(model_path, candidate_points, sample_input, cache, tmp_dir)
@@ -222,7 +241,7 @@ def greedy_split(task_name, priority, period_ms, deadline_ms, model_path,
                  candidate_points, higher_priority_tasks, sample_input,
                  tmp_dir="models/chunks_greedy"):
     """Algorithm 2: keep only the single best candidate per iteration."""
-    cache = {}
+    cache = PROFILE_CACHE
     B = min_blocking_budget(higher_priority_tasks)
 
     full = _profile_config(model_path, candidate_points, sample_input, cache, tmp_dir)
