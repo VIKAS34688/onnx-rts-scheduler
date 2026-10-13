@@ -18,7 +18,7 @@ import time
 
 import onnxruntime as ort
 
-from _common import make_sample, sleep_until, summarize
+from _common import make_sample, sleep_until, summarize, warm_for
 from device import DEVICE, PROVIDERS
 from scheduler import Scheduler, Task, verify_no_overlap
 import splitter
@@ -68,6 +68,9 @@ def run_scheduled(tasks, rts_tasks, model_path, candidates, duration_s=8.0, warm
         _warm_up(sessions, x, warmup_runs)
         plan.append((t, sessions, x))
 
+    # keep the GPU busy right up to the start, otherwise its clocks drop during the idle gap
+    warm_for(1.0, lambda: [_warm_up(sessions, x, 1) for _, sessions, x in plan])
+
     if gc_off:                      # no Python garbage-collection pauses during the timed region
         gc.collect()
         gc.freeze()
@@ -76,7 +79,7 @@ def run_scheduled(tasks, rts_tasks, model_path, candidates, duration_s=8.0, warm
     scheduler.start()
     records, lock = [], threading.Lock()
     total_jobs = sum(math.ceil(duration_s / (t["period_ms"] / 1000.0)) for t in tasks)
-    t0 = time.perf_counter() + 0.5
+    t0 = time.perf_counter() + 0.05
 
     def make_callback(name, release):
         def done(finish):

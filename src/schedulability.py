@@ -165,6 +165,7 @@ def min_blocking_budget(higher_priority_tasks) -> float:
 # ---------------------------------------------------------------------
 
 SEARCH_RUNS = 300       # profiling runs per chunk inside the search
+DISPATCH_OVERHEAD_MS = 0.0   # per-chunk cost of the Python dispatcher (measure it with measure_dispatch_overhead.py)
 WCET_STAT = "p99_ms"    # estimator used as a chunk's WCET ("max_ms" = the paper's observed max)
 
 PROFILE_CACHE = {}                          # shared by every search: (model_path, active_points) -> chunk WCETs (ms)
@@ -191,13 +192,12 @@ def _profile_config(model_path, active_points, sample_input, cache, tmp_dir):
     import profiler
 
     key = (model_path, tuple(active_points))
-    if key in cache:
-        return cache[key]
-    chunk_paths = splitter.build_chunks(model_path, list(active_points), tmp_dir)
-    wcets = [profiler.profile_chunk(p, sample_input, n_runs=SEARCH_RUNS)[WCET_STAT]
-             for p in chunk_paths]
-    cache[key] = wcets
-    return wcets
+    if key not in cache:
+        chunk_paths = splitter.build_chunks(model_path, list(active_points), tmp_dir)
+        cache[key] = [profiler.profile_chunk(p, sample_input, n_runs=SEARCH_RUNS)[WCET_STAT]
+                      for p in chunk_paths]
+    # the cache keeps the raw measurement; the dispatcher's cost is added on the way out
+    return [w + DISPATCH_OVERHEAD_MS for w in cache[key]]
 
 
 def optimal_split(task_name, priority, period_ms, deadline_ms, model_path,

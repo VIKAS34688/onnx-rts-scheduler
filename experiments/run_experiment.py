@@ -63,9 +63,11 @@ def main():
     ap.add_argument("--n-tasks", type=int, default=4)
     ap.add_argument("--utils", type=float, nargs="+", default=[0.6, 0.7, 0.8, 0.9])
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--overhead-ms", type=float, default=0.0,help="per-chunk dispatcher cost added to every chunk WCET in the analysis")
     ap.add_argument("--gc-off", action="store_true", help="disable Python garbage collection during timed runs")
     ap.add_argument("--out", default="experiments/results/results.csv")
     args = ap.parse_args()
+    sch.DISPATCH_OVERHEAD_MS = args.overhead_ms
 
     n_cached = sch.load_profile_cache()
     print(f"[INFO] loaded {n_cached} cached chunk measurements")

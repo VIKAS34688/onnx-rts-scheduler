@@ -12,14 +12,15 @@ Usage:
 
 import csv
 import os
+import sys
 from collections import defaultdict
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-CSV_PATH = "experiments/results/results.csv"
-PNG_PATH = "experiments/results/schedulability.png"
+CSV_PATH = sys.argv[1] if len(sys.argv) > 1 else "experiments/results/results.csv"
+PNG_PATH = os.path.splitext(CSV_PATH)[0] + ".png"
 
 
 def truthy(v):
@@ -54,7 +55,7 @@ plt.ylabel("Schedulable task sets (%)")
 plt.ylim(-3, 103)
 plt.xticks(utils)
 plt.grid(alpha=0.3)
-plt.legend()
+plt.legend(loc="lower left")
 plt.title("Schedulability vs. utilization (AlexNet, ONNX Runtime)")
 plt.tight_layout()
 os.makedirs(os.path.dirname(PNG_PATH), exist_ok=True)

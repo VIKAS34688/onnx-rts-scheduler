@@ -22,6 +22,11 @@ def sleep_until(t):
     if delay > 0:
         time.sleep(delay)
 
+def warm_for(seconds, fn):
+    """Call fn() repeatedly for `seconds` of wall-clock time (lets the GPU reach full clocks)."""
+    end = time.perf_counter() + seconds
+    while time.perf_counter() < end:
+        fn()
 
 def make_sample(model_path):
     """Random float32 input matching the model's declared input shape."""

@@ -22,7 +22,7 @@ import time
 import numpy as np
 import onnxruntime as ort
 
-from _common import make_sample, sleep_until, summarize
+from _common import make_sample, sleep_until, summarize, warm_for
 from device import DEVICE, PROVIDERS
 
 
@@ -42,8 +42,11 @@ def run_baseline(tasks, model_path, duration_s=8.0, warmup_runs=20, gc_off=False
             session.run_with_iobinding(io)
         workers.append((t, session, io, x))   # keep x alive while bound
 
+    # keep the GPU busy right up to the start, otherwise its clocks drop during the idle gap
+    warm_for(1.0, lambda: [s.run_with_iobinding(io) for _, s, io, _ in workers])
+
     records, lock = [], threading.Lock()
-    t0 = time.perf_counter() + 0.5            # common start, so all threads line up
+    t0 = time.perf_counter() + 0.05           # common start, so all threads line up 
 
     def task_loop(t, session, io):
         period = t["period_ms"] / 1000.0
