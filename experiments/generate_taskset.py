@@ -1,30 +1,54 @@
 """
-UUniFast algorithm for generating random task utilizations, matching the
-paper's own experimental method (Section VIII-A, Bini & Buttazzo 2005).
+Task-set generation, following the reference paper's method (Section VIII-A):
+UUniFast utilizations (Bini & Buttazzo 2005), D_i = T_i, Deadline-Monotonic
+priorities, and WCET C_i = profiled time of the whole (unsplit) model.
 
-Given a target total utilization U and a number of tasks n, produces n
-individual utilizations U_1..U_n that sum to U, avoiding the bias of a
-naive uniform split.
+Since U_i = C_i / T_i, each period follows from its utilization: T_i = C_i / U_i.
 
-TODO (Person C):
-- Implement uunifast(n, U) -> list[float]
-- Implement generate_task_set(n, U, period_range) -> list[Task], assigning
-  periods (and Deadline-Monotonic priorities from those periods) alongside
-  the generated utilizations
+Practical deviation: a set is re-drawn if any task gets U_i < MIN_UTIL. A
+task with a tiny utilization has a huge period and would release only a
+handful of jobs in a short run, so it adds almost nothing to the observation.
+
+Usage:
+    python experiments/generate_taskset.py
 """
 
+import random
 
-def uunifast(n: int, total_utilization: float) -> list:
-    """
-    TODO: implement the standard UUniFast algorithm.
-    """
-    raise NotImplementedError
+MIN_UTIL = 0.03
 
 
-def generate_task_set(n: int, total_utilization: float, period_range: tuple):
-    """
-    TODO: combine uunifast() with randomly sampled periods to build a
-    full task set, then assign priorities via Deadline-Monotonic
-    (shorter deadline/period = higher priority).
-    """
-    raise NotImplementedError
+def uunifast(n, total_u, rng):
+    """n utilizations, uniformly distributed over {U_i >= 0, sum = total_u}."""
+    utils, remaining = [], total_u
+    for i in range(1, n):
+        next_remaining = remaining * rng.random() ** (1.0 / (n - i))
+        utils.append(remaining - next_remaining)
+        remaining = next_remaining
+    utils.append(remaining)
+    return utils
+
+
+def generate_task_set(n, total_u, wcet_ms, rng):
+    """Returns n task dicts sorted by priority (priority 1 = highest)."""
+    while True:
+        utils = uunifast(n, total_u, rng)
+        if min(utils) >= MIN_UTIL:
+            break
+    tasks = [{"util": u, "period_ms": wcet_ms / u, "deadline_ms": wcet_ms / u,
+              "wcet_ms": wcet_ms} for u in utils]
+    tasks.sort(key=lambda t: t["deadline_ms"])           # Deadline-Monotonic
+    for prio, t in enumerate(tasks, start=1):
+        t["priority"] = prio
+        t["name"] = f"t{prio}"
+    return tasks
+
+
+if __name__ == "__main__":
+    rng = random.Random(1)
+    for total_u in (0.6, 0.9):
+        tasks = generate_task_set(4, total_u, 2.8, rng)
+        print(f"U = {total_u}: sum of utilizations = {sum(t['util'] for t in tasks):.3f}")
+        for t in tasks:
+            print(f"  {t['name']}  prio={t['priority']}  U={t['util']:.3f}  "
+                  f"T=D={t['period_ms']:.2f}ms  C={t['wcet_ms']}ms")
