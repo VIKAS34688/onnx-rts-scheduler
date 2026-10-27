@@ -26,6 +26,7 @@ Priority convention: lower priority NUMBER = higher priority.
 import json
 import math
 import os
+import time
 
 TICK_MS = 0.001  # one discrete time unit = 1 microsecond
 
@@ -165,8 +166,12 @@ def min_blocking_budget(higher_priority_tasks) -> float:
 # ---------------------------------------------------------------------
 
 SEARCH_RUNS = 300       # profiling runs per chunk inside the search
-DISPATCH_OVERHEAD_MS = 0.0   # per-chunk cost of the Python dispatcher (measure it with measure_dispatch_overhead.py)
 WCET_STAT = "p99_ms"    # estimator used as a chunk's WCET ("max_ms" = the paper's observed max)
+DISPATCH_OVERHEAD_MS = 0.0   # per-chunk cost of the Python dispatcher (measure it: measure_dispatch_overhead.py)
+
+PROFILE_TIME_S = 0.0    # seconds spent really profiling (cache misses only)
+PROFILE_COUNT = 0       # number of configurations really profiled
+EVAL_KEYS = set()       # configurations looked at since the last reset (cache hits and misses)
 
 PROFILE_CACHE = {}                          # shared by every search: (model_path, active_points) -> chunk WCETs (ms)
 CACHE_FILE = "models/profile_cache.json"    # saved so later runs reuse the SAME measurements
@@ -188,14 +193,19 @@ def load_profile_cache(path=CACHE_FILE):
 
 def _profile_config(model_path, active_points, sample_input, cache, tmp_dir):
     """Build + profile one split configuration; cached like the paper's profiling cache."""
+    global PROFILE_TIME_S, PROFILE_COUNT
     import splitter
     import profiler
 
     key = (model_path, tuple(active_points))
+    EVAL_KEYS.add(key)
     if key not in cache:
+        t0 = time.perf_counter()
         chunk_paths = splitter.build_chunks(model_path, list(active_points), tmp_dir)
         cache[key] = [profiler.profile_chunk(p, sample_input, n_runs=SEARCH_RUNS)[WCET_STAT]
                       for p in chunk_paths]
+        PROFILE_TIME_S += time.perf_counter() - t0
+        PROFILE_COUNT += 1
     # the cache keeps the raw measurement; the dispatcher's cost is added on the way out
     return [w + DISPATCH_OVERHEAD_MS for w in cache[key]]
 

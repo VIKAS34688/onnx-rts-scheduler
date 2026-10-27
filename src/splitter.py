@@ -5,11 +5,9 @@ Mirrors the reference paper's Section VII splitting mechanics, using
 ONNX's own graph-extraction API (onnx.utils.extract_model) instead of
 torch.fx / Caffe .prototxt parsing.
 
-Candidate split points, per the paper, are locations in the graph where
-"no other node can run in parallel" -- i.e. strictly sequential regions.
-For AlexNet (Phase 1's model) this holds for the entire network, since
-it has no skip connections or branching: every intermediate tensor is
-a valid candidate split point.
+Candidate split points are the LEGAL cuts of the graph (see graph_cuts.py): places
+where exactly one tensor crosses. For AlexNet, a straight chain, that is every node
+output except the last, so the list is the same 19 points as before.
 """
 
 import os
@@ -17,30 +15,27 @@ import onnx
 import onnxruntime as ort
 import numpy as np
 
+from graph_cuts import legal_cut_points
+
 
 def _model_input_name(model) -> str:
-    return model.graph.input[0].name
+    names = [i.name for i in model.graph.input if i.name not in {w.name for w in model.graph.initializer}]
+    if len(names) != 1:
+        raise ValueError(f"this pipeline handles models with exactly one input, found {len(names)}: {names}")
+    return names[0]
 
 
 def _model_output_name(model) -> str:
+    if len(model.graph.output) != 1:
+        raise ValueError("this pipeline handles models with exactly one output, found "
+                         f"{len(model.graph.output)}: {[o.name for o in model.graph.output]}")
     return model.graph.output[0].name
 
 
 def list_candidate_split_points(onnx_model_path: str) -> list:
-    """
-    Return an ordered list of tensor names that are valid split
-    boundaries -- i.e. the output of every node except the final one
-    (cutting "after everything" isn't a real split).
-    """
+    """Names of the tensors where the graph can legally be cut, in graph order."""
     model = onnx.load(onnx_model_path)
-    final_output = _model_output_name(model)
-
-    candidates = []
-    for node in model.graph.node:
-        for out in node.output:
-            if out != final_output and out not in candidates:
-                candidates.append(out)
-    return candidates
+    return [tensor for _, tensor in legal_cut_points(model)]
 
 
 def extract_chunk(onnx_model_path: str, output_path: str,
@@ -85,10 +80,7 @@ def verify_chunks_match_original(original_path: str, chunk_paths: list,
     """
     Correctness check: run the chunks sequentially (chunk 1's output
     feeding chunk 2's input, etc.) and compare the final result against
-    running the original, unsplit model directly. This is what proves
-    the splitting didn't silently change the model's behavior -- and
-    it's also the first real test of Rule 4 (sequential chunk handoff)
-    once Person A's scheduler is wired up against real chunks.
+    running the original, unsplit model directly.
     """
     orig_session = ort.InferenceSession(
         original_path, providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
@@ -122,8 +114,7 @@ if __name__ == "__main__":
         print(f"  [{i}] {name}")
 
     # Demo: activate 3 split points roughly spread through the network,
-    # producing 4 chunks -- a realistic partial-split configuration to
-    # sanity-check before wiring this into the full Algorithm 1/2 search.
+    # producing 4 chunks.
     n = len(candidates)
     demo_points = [candidates[n // 4], candidates[n // 2], candidates[3 * n // 4]]
     print(f"\n[INFO] Building a demo 4-chunk split using: {demo_points}")

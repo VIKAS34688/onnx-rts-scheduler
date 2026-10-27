@@ -159,7 +159,7 @@ class Scheduler:
                 if self._queue and self._queue[0].priority < task.priority:
                     self._seq_counter += 1
                     heapq.heappush(self._queue,
-                                   _ResumedTask(task, chunk_index + 1, prev_output_ortvalue))
+                                   _ResumedTask(task, chunk_index + 1, prev_output_ortvalue))  # stores the remaining chunks and previous output so a yielded task can continue later.
                     self.preemptions += 1
                     return
 

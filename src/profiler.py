@@ -60,7 +60,7 @@ def _print_stats(label: str, stats: dict):
           f"p99={stats['p99_ms']:.3f}ms  max={stats['max_ms']:.3f}ms  "
           f"(n={stats['n_runs']})")
 
-
+#Prepare the input tensor , For AlexNet, the original image input is shaped: (1,3,224,224) , if shape matches reuses the sample or else creates requried shape
 def _input_for_session(session, sample_input: np.ndarray) -> np.ndarray:
     """Return sample_input if it fits this chunk, else a random tensor of the chunk's own input shape."""
     declared = session.get_inputs()[0].shape
@@ -69,7 +69,7 @@ def _input_for_session(session, sample_input: np.ndarray) -> np.ndarray:
         return np.random.randn(*shape).astype(np.float32)
     return sample_input
 
-
+# Measure compute time
 def profile_chunk(chunk_onnx_path: str, sample_input: np.ndarray,
                    n_runs: int = 300, warmup: int = 10) -> dict:
     """
