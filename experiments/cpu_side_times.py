@@ -106,7 +106,7 @@ def postprocess_yolo(raw, conf=0.25, iou=0.45):
     xy, wh = p[:, :2], p[:, 2:4]
     boxes = np.concatenate([xy - wh / 2, xy + wh / 2], axis=1) + cls[:, None] * 4096.0   # class-aware NMS
     if tv_ops is not None:
-        kept = tv_ops.nms(torch.from_numpy(boxes), torch.from_numpy(score), iou).numpy()
+        kept = tv_ops.nms(torch.from_numpy(np.ascontiguousarray(boxes, dtype=np.float32)),torch.from_numpy(np.ascontiguousarray(score, dtype=np.float32)),iou,).numpy()
     else:
         kept = nms_numpy(boxes, score, iou)
     return int(p.shape[0]), int(len(kept))
