@@ -1,0 +1,2 @@
+U,set,analysis_ok,split_points,baseline_jobs,baseline_misses,baseline_worst_ms,sched_jobs,sched_misses,sched_worst_ms,rule1_ok,preemptions,model,method,n_tasks,U_actual,hyper_ms,duration_s,configs_evaluated,opt_seconds,profile_seconds
+0.7,0,True,0/0/0/0,469,2,12.453,469,0,14.847,True,0,alexnet.onnx,heuristic,4,0.7,0.0,2.0,2,0.0,0.0

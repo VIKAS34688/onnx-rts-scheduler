@@ -1,0 +1,71 @@
+{
+ "model": "alexnet.onnx",
+ "baseline": [
+  {
+   "tasks": 1,
+   "gpu_mb_added": 544.0,
+   "startup_s": 0.7232437000202481
+  },
+  {
+   "tasks": 2,
+   "gpu_mb_added": 1078.0,
+   "startup_s": 1.239553599996725
+  },
+  {
+   "tasks": 3,
+   "gpu_mb_added": 1608.0,
+   "startup_s": 1.6935215000121389
+  },
+  {
+   "tasks": 4,
+   "gpu_mb_added": 2142.0,
+   "startup_s": 2.2761622999969404
+  },
+  {
+   "tasks": 5,
+   "gpu_mb_added": 2684.0,
+   "startup_s": 2.816916500014486
+  },
+  {
+   "tasks": 6,
+   "gpu_mb_added": 3216.0,
+   "startup_s": 3.35257270000875
+  },
+  {
+   "tasks": 7,
+   "gpu_mb_added": 3296.4500007629395,
+   "startup_s": 3.8628179999941494
+  },
+  {
+   "tasks": 8,
+   "gpu_mb_added": 3296.4500007629395,
+   "startup_s": 4.852214900020044
+  },
+  {
+   "tasks": 9,
+   "gpu_mb_added": 3296.4500007629395,
+   "startup_s": 6.011259599996265
+  },
+  {
+   "tasks": 10,
+   "gpu_mb_added": 3296.4500007629395,
+   "startup_s": 7.771476199995959
+  },
+  {
+   "tasks": 11,
+   "gpu_mb_added": 3296.4500007629395,
+   "startup_s": 9.541915900015738
+  },
+  {
+   "tasks": 12,
+   "gpu_mb_added": 3296.4500007629395,
+   "startup_s": 12.117599000019254
+  }
+ ],
+ "proposed": {
+  "chunks": 8,
+  "gpu_mb_added": 530.0,
+  "startup_s": 0.5880969999998342
+ },
+ "max_tasks_that_fit": 12
+}

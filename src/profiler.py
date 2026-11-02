@@ -6,37 +6,21 @@ using high-resolution wall-clock timers, isolating each chunk (running
 it alone on the GPU) to get clean WCET estimates uncontaminated by
 resource contention. We follow the same wall-clock approach here.
 
-On our discrete GPU (unlike the paper's unified-memory Jetson boards),
-input/output data has to physically cross the PCIe bus between host
-(CPU) RAM and device (GPU) VRAM. We use ONNX Runtime's IOBinding to
-keep data resident on the GPU across the actual compute call, which
-lets us measure:
+Inputs and outputs are kept on the device with IOBinding, so the numbers are compute time
+alone, not PCIe copies (measure_pcie_overhead() reports those separately).
 
-  - compute time   -- the GPU-only number, comparable to the paper's
-  - upload time    -- host -> device copy (does not exist in the
-                       paper's unified-memory setup)
-  - download time  -- device -> host copy (same)
+A chunk may have several inputs and several outputs (multi-tensor cuts). Only the first
+chunk of a model takes the real sample; every other input is a random float tensor of the
+shape the chunk declares. Convolution/Gemm timing does not depend on the values.
 
-NOTE on outliers: our GTX 1650 is also rendering the Windows desktop
-while we profile -- the paper's embedded Jetson boards carry no such
-background load. We report percentiles (p50/p95/p99) alongside min/
-mean/max so a rare OS-level stall isn't mistaken for the true worst case.
-
-NOTE on chunk inputs: only chunk 0 takes the image. Later chunks take an
-intermediate tensor with a fixed shape, so for any chunk whose declared
-input shape differs from the sample we build a random tensor of the right
-shape. Convolution/Gemm timing does not depend on the values.
-
-NOTE on warmup: after an idle gap (for example while chunk files are being
-written) the GPU sits at low clocks, and a handful of ~0.3 ms runs finish
-before the clocks ramp up. Warmup is therefore time-based as well as
-count-based.
+Warm-up is time-based as well as count-based: after an idle gap the GPU sits at low clocks.
 """
 
-import torch  # must be imported first -- registers PyTorch's bundled CUDA DLLs for Windows to find
 import time
 import numpy as np
 import onnxruntime as ort
+
+from device import DEVICE, PROVIDERS
 
 WARMUP_SECONDS = 0.5   # warm up by time, so the GPU reaches full clocks before timing starts
 
@@ -60,42 +44,40 @@ def _print_stats(label: str, stats: dict):
           f"p99={stats['p99_ms']:.3f}ms  max={stats['max_ms']:.3f}ms  "
           f"(n={stats['n_runs']})")
 
-#Prepare the input tensor , For AlexNet, the original image input is shaped: (1,3,224,224) , if shape matches reuses the sample or else creates requried shape
-def _input_for_session(session, sample_input: np.ndarray) -> np.ndarray:
-    """Return sample_input if it fits this chunk, else a random tensor of the chunk's own input shape."""
-    declared = session.get_inputs()[0].shape
-    shape = [d if isinstance(d, int) else 1 for d in declared]
-    if list(sample_input.shape) != shape:
-        return np.random.randn(*shape).astype(np.float32)
-    return sample_input
 
-# Measure compute time
+def _inputs_for_session(session, sample_input: np.ndarray) -> dict:
+    """name -> array for every declared input: the sample where it fits, random float32 elsewhere."""
+    feed = {}
+    for k, meta in enumerate(session.get_inputs()):
+        if meta.type != "tensor(float)":
+            raise NotImplementedError(f"input {meta.name} has type {meta.type}; only float inputs are supported")
+        shape = [d if isinstance(d, int) else 1 for d in meta.shape]
+        if k == 0 and list(sample_input.shape) == shape:
+            feed[meta.name] = sample_input
+        else:
+            feed[meta.name] = np.random.randn(*shape).astype(np.float32)
+    return feed
+
+
 def profile_chunk(chunk_onnx_path: str, sample_input: np.ndarray,
                    n_runs: int = 300, warmup: int = 10) -> dict:
     """
-    Run a single chunk n_runs times in isolation and return compute-only
-    timing stats (min/mean/p50/p95/p99/max, in milliseconds).
-
-    Input and output are kept GPU-resident via IOBinding for the timed
-    region, so this number reflects compute time alone -- NOT including
-    the PCIe upload/download cost. Use measure_pcie_overhead() for that.
+    Run a chunk n_runs times in isolation and return compute-only timing stats
+    (min/mean/p50/p95/p99/max, in milliseconds).
     """
-    session = ort.InferenceSession(
-        chunk_onnx_path, providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
-    )
-    input_name = session.get_inputs()[0].name
-    output_name = session.get_outputs()[0].name
-    sample_input = _input_for_session(session, sample_input)
-
-    # Upload once, outside the timed loop -- we're isolating compute here.
-    gpu_input = ort.OrtValue.ortvalue_from_numpy(sample_input, "cuda", 0)
+    session = ort.InferenceSession(chunk_onnx_path, providers=PROVIDERS)
+    feed = _inputs_for_session(session, sample_input)
 
     io_binding = session.io_binding()
-    io_binding.bind_ortvalue_input(input_name, gpu_input)
-    io_binding.bind_output(output_name, "cuda")  # keep output on GPU too
+    keep = []                                              # keep the device tensors alive while bound
+    for name, arr in feed.items():
+        ov = ort.OrtValue.ortvalue_from_numpy(arr, DEVICE, 0)
+        keep.append(ov)
+        io_binding.bind_ortvalue_input(name, ov)
+    for meta in session.get_outputs():
+        io_binding.bind_output(meta.name, DEVICE)
 
-    # Warm up by TIME, not run count: after an idle gap the GPU sits at low
-    # clocks, and ~10 tiny runs are over before clocks ramp up.
+    # Warm up by TIME, not run count: after an idle gap the GPU sits at low clocks.
     warm_until = time.perf_counter() + WARMUP_SECONDS
     runs = 0
     while runs < warmup or time.perf_counter() < warm_until:
@@ -105,7 +87,7 @@ def profile_chunk(chunk_onnx_path: str, sample_input: np.ndarray,
     times_ms = []
     for _ in range(n_runs):
         start = time.perf_counter()
-        session.run_with_iobinding(io_binding)  # compute only, no copy
+        session.run_with_iobinding(io_binding)             # compute only, no copy
         end = time.perf_counter()
         times_ms.append((end - start) * 1000.0)
 
@@ -115,55 +97,50 @@ def profile_chunk(chunk_onnx_path: str, sample_input: np.ndarray,
 def measure_pcie_overhead(chunk_onnx_path: str, sample_input: np.ndarray,
                            n_runs: int = 300, warmup: int = 10) -> dict:
     """
-    Measure the upload (host->device) and download (device->host) costs
-    SEPARATELY from compute time -- the overhead the paper's Jetson setup
-    does not have, that we committed to reporting honestly.
+    Upload (host->device) and download (device->host) costs of the FIRST input and FIRST output,
+    separately from compute time: the overhead the paper's Jetson setup does not have.
     """
-    session = ort.InferenceSession(
-        chunk_onnx_path, providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
-    )
+    session = ort.InferenceSession(chunk_onnx_path, providers=PROVIDERS)
+    feed = _inputs_for_session(session, sample_input)
     input_name = session.get_inputs()[0].name
     output_name = session.get_outputs()[0].name
-    sample_input = _input_for_session(session, sample_input)
+    arr = feed[input_name]
 
     for _ in range(warmup):
-        gpu_input = ort.OrtValue.ortvalue_from_numpy(sample_input, "cuda", 0)
+        gpu_input = ort.OrtValue.ortvalue_from_numpy(arr, DEVICE, 0)
         io_binding = session.io_binding()
         io_binding.bind_ortvalue_input(input_name, gpu_input)
-        io_binding.bind_output(output_name, "cuda")
+        io_binding.bind_output(output_name, DEVICE)
         session.run_with_iobinding(io_binding)
         _ = io_binding.get_outputs()[0].numpy()
 
     upload_times_ms, download_times_ms = [], []
 
+    # --- upload: host -> device ---
     for _ in range(n_runs):
         # --- upload: host -> device ---
         start = time.perf_counter()
-        gpu_input = ort.OrtValue.ortvalue_from_numpy(sample_input, "cuda", 0)
+        gpu_input = ort.OrtValue.ortvalue_from_numpy(arr, DEVICE, 0)
         end = time.perf_counter()
         upload_times_ms.append((end - start) * 1000.0)
 
         io_binding = session.io_binding()
         io_binding.bind_ortvalue_input(input_name, gpu_input)
-        io_binding.bind_output(output_name, "cuda")
-        session.run_with_iobinding(io_binding)  # compute, not timed here
+        io_binding.bind_output(output_name, DEVICE)
+        session.run_with_iobinding(io_binding)
 
         # --- download: device -> host ---
         gpu_output = io_binding.get_outputs()[0]
         start = time.perf_counter()
-        _ = gpu_output.numpy()  # triggers the actual device->host copy
+        _ = gpu_output.numpy()
         end = time.perf_counter()
         download_times_ms.append((end - start) * 1000.0)
 
-    return {
-        "upload": _percentile_stats(upload_times_ms),
-        "download": _percentile_stats(download_times_ms),
-    }
+    return {"upload": _percentile_stats(upload_times_ms), "download": _percentile_stats(download_times_ms)}
 
 
 if __name__ == "__main__":
-    # Quick manual check against AlexNet. Close other apps first to
-    # reduce OS-level noise in the results.
+    # Quick manual check against AlexNet. Close other apps first to reduce OS-level noise.
     sample = np.random.randn(1, 3, 224, 224).astype(np.float32)
 
     print("[INFO] Profiling compute time...")

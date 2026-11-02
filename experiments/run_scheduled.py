@@ -23,13 +23,14 @@ from device import DEVICE, PROVIDERS
 from scheduler import Scheduler, Task, verify_no_overlap
 import splitter
 
+import hashlib
 
 def chunk_paths_for(model_path, candidates, active_points):
     """Chunk files for one split configuration (built once, then reused)."""
     if not active_points:
         return [model_path]
     stem = os.path.splitext(os.path.basename(model_path))[0]
-    tag = "_".join(str(candidates.index(p)) for p in active_points)
+    tag = hashlib.md5("|".join(map(str, active_points)).encode()).hexdigest()[:10]
     out_dir = os.path.join("models", "chunks_run", stem, f"cfg_{tag}")
     paths = [os.path.join(out_dir, f"chunk_{i}.onnx") for i in range(len(active_points) + 1)]
     if all(os.path.exists(p) for p in paths):
@@ -38,14 +39,19 @@ def chunk_paths_for(model_path, candidates, active_points):
 
 
 def _warm_up(sessions, x, n):
+    """Run the whole chunk chain n times, handing tensors on by name like the scheduler does."""
     for _ in range(n):
-        current = x
+        store = {}
         for s in sessions:
             io = s.io_binding()
-            io.bind_ortvalue_input(s.get_inputs()[0].name, current)
-            io.bind_output(s.get_outputs()[0].name, DEVICE)
+            for meta in s.get_inputs():
+                io.bind_ortvalue_input(meta.name, store.get(meta.name, x))
+            out_names = [m.name for m in s.get_outputs()]
+            for name in out_names:
+                io.bind_output(name, DEVICE)
             s.run_with_iobinding(io)
-            current = io.get_outputs()[0]
+            for name, value in zip(out_names, io.get_outputs()):
+                store[name] = value
 
 
 def run_scheduled(tasks, rts_tasks, model_path, candidates, duration_s=8.0, warmup_runs=5,

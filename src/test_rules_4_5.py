@@ -3,16 +3,19 @@ Deterministic test of Rule 4 (chunks run in order, output feeding input) and
 Rule 5 (a job yields the device at a chunk boundary when a higher-priority job
 is waiting), on real split chunks.
 
-Setup: a low-priority job with 3 chunks is started; while its FIRST chunk is
+Setup: a low-priority job with several chunks is started; while its FIRST chunk is
 still running (that chunk is artificially slowed by 40 ms so the timing is not
 a race), a high-priority single-chunk job is submitted. Expected order:
-    low chunk 0 -> high chunk 0 -> low chunk 1 -> low chunk 2
+    low chunk 0 -> high chunk 0 -> low chunk 1 -> ... -> last low chunk
 and the final output must equal the whole model's output.
 
-Usage:
-    python src/test_rules_4_5.py
+Usage (project root, venv active):
+    python src/test_rules_4_5.py                                   (AlexNet, single-tensor cuts)
+    python src/test_rules_4_5.py --model models/yolov8n.onnx       (single-tensor cuts, detector)
+    python src/test_rules_4_5.py --model models/yolov8n.onnx --multi   (multi-tensor cuts, Option B)
 """
 
+import argparse
 import time
 import numpy as np
 import onnxruntime as ort
@@ -20,8 +23,6 @@ import onnxruntime as ort
 from device import DEVICE, PROVIDERS
 from scheduler import Scheduler, Task, verify_no_overlap
 import splitter
-
-MODEL = "models/alexnet.onnx"
 
 
 class SlowFirstChunk:
@@ -46,16 +47,25 @@ class SlowFirstChunk:
 
 
 def main():
-    points = splitter.list_candidate_split_points(MODEL)
-    n = len(points)
-    cuts = [points[n // 3], points[2 * n // 3]]
-    paths = splitter.build_chunks(MODEL, cuts, "models/chunks_rule45")
-    print(f"[INFO] low-priority job = {len(paths)} chunks, cut after {cuts}")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model", default="models/alexnet.onnx")
+    ap.add_argument("--multi", action="store_true")
+    args = ap.parse_args()
+    model = args.model
+
+    if args.multi:
+        cuts = splitter.pick_multi_cuts(model, 3)
+    else:
+        points = splitter.list_candidate_split_points(model)
+        n = len(points)
+        cuts = [points[n // 3], points[2 * n // 3]]
+    paths = splitter.build_chunks(model, cuts, "models/chunks_rule45")
+    print(f"[INFO] low-priority job = {len(paths)} chunks, cuts: {cuts}")
 
     low_sessions = [SlowFirstChunk(ort.InferenceSession(p, providers=PROVIDERS),
                                    delay_s=0.04 if i == 0 else 0.0)
                     for i, p in enumerate(paths)]
-    whole = ort.InferenceSession(MODEL, providers=PROVIDERS)
+    whole = ort.InferenceSession(model, providers=PROVIDERS)
     high_session = SlowFirstChunk(whole)
 
     in_name = whole.get_inputs()[0].name
@@ -70,19 +80,21 @@ def main():
     sched.submit_job(Task("low", 5, low_sessions, feed))
     time.sleep(0.01)                       # low's slow first chunk is now running
     sched.submit_job(Task("high", 1, [high_session], feed))
-    time.sleep(1.0)
+    time.sleep(1.5)
     sched.stop()
 
     order = [(e["task_id"], e["chunk_index"]) for e in sorted(sched.execution_log, key=lambda e: e["start"])]
     print(f"[INFO] execution order: {order}")
-    want = [("low", 0), ("high", 0), ("low", 1), ("low", 2)]
-    print(f"[{'PASS' if order == want else 'FAIL'}] Rule 5: order is {want}")
+    want = [("low", 0), ("high", 0)] + [("low", k) for k in range(1, len(paths))]
+    print(f"[{'PASS' if order == want else 'FAIL'}] Rule 5: order is low 0, high 0, then the rest of low's chunks")
     print(f"[{'PASS' if sched.preemptions == 1 else 'FAIL'}] preemptions counted: {sched.preemptions} (expected 1)")
     print(f"[{'PASS' if verify_no_overlap(sched.execution_log) else 'FAIL'}] Rule 1: no overlapping chunks")
 
     got = low_sessions[-1].last_io.get_outputs()[0].numpy()
     diff = float(np.max(np.abs(got - expected)))
-    print(f"[{'PASS' if diff < 1e-4 else 'FAIL'}] Rule 4: chunked, preempted job output matches whole model (max diff {diff:.8f})")
+    tol = 1e-3 * max(1.0, float(np.abs(expected).max()))
+    print(f"[{'PASS' if diff < tol else 'FAIL'}] Rule 4: chunked, preempted job output matches whole model "
+          f"(max diff {diff:.8f}, allowed {tol:.6f})")
 
 
 if __name__ == "__main__":

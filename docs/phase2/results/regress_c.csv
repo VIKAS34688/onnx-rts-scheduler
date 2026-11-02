@@ -1,0 +1,11 @@
+U,set,analysis_ok,split_points,baseline_jobs,baseline_misses,baseline_worst_ms,sched_jobs,sched_misses,sched_worst_ms,rule1_ok,preemptions,model,method,multi,n_tasks,U_actual,hyper_ms,duration_s,configs_evaluated,opt_seconds,profile_seconds
+0.7,0,True,0/0/0,1669,2,10.989,1669,2,10.336,True,0,alexnet.onnx,heuristic,False,3,0.7,0.0,8.0,2,0.0,0.0
+0.7,1,True,0/1/1,1669,13,11.046,1669,2,14.252,True,94,alexnet.onnx,heuristic,False,3,0.7,0.0,8.0,9,0.0,0.0
+0.7,2,True,0/0/0,1669,3,16.441,1669,0,10.309,True,0,alexnet.onnx,heuristic,False,3,0.7,0.0,8.0,2,0.0,0.0
+0.7,3,True,0/0/0,1668,3,15.26,1668,0,10.492,True,0,alexnet.onnx,heuristic,False,3,0.7,0.0,8.0,2,0.0,0.0
+0.7,4,True,0/0/0,1670,0,12.902,1670,0,11.208,True,0,alexnet.onnx,heuristic,False,3,0.7,0.0,8.0,2,0.0,0.0
+0.7,5,True,0/0/0,1669,0,7.653,1669,0,10.355,True,0,alexnet.onnx,heuristic,False,3,0.7,0.0,8.0,2,0.0,0.0
+0.7,6,True,0/0/0,1669,1,12.317,1669,0,10.208,True,0,alexnet.onnx,heuristic,False,3,0.7,0.0,8.0,2,0.0,0.0
+0.7,7,True,0/0/0,1669,0,8.28,1669,0,10.091,True,0,alexnet.onnx,heuristic,False,3,0.7,0.0,8.0,2,0.0,0.0
+0.7,8,True,0/0/0,1669,0,8.131,1669,0,9.827,True,0,alexnet.onnx,heuristic,False,3,0.7,0.0,8.0,2,0.0,0.0
+0.7,9,True,0/0/0,1669,0,7.947,1669,0,10.346,True,0,alexnet.onnx,heuristic,False,3,0.7,0.0,8.0,2,0.0,0.0

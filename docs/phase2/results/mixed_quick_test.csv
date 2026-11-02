@@ -1,0 +1,9 @@
+U,set,analysis_ok,split_points,baseline_jobs,baseline_misses,baseline_worst_ms,sched_jobs,sched_misses,sched_worst_ms,rule1_ok,preemptions,model,models_in_set,method,multi,n_tasks,U_actual,hyper_ms,duration_s,configs_evaluated,opt_seconds,profile_seconds
+0.6,0,True,0/0/0/0,748,24,14.843,748,2,18.319,True,0,mixed,resnet18.onnx+alexnet.onnx+alexnet.onnx+resnet18.onnx,heuristic,False,4,0.621,120,4.08,4,7.671,7.671
+0.6,1,True,0/0/0/0,680,0,13.549,680,0,16.076,True,0,mixed,resnet18.onnx+resnet18.onnx+resnet18.onnx+alexnet.onnx,heuristic,False,4,0.585,120,4.08,4,0.0,0.0
+0.7,0,True,0/0/0/0,850,32,12.028,850,0,22.136,True,0,mixed,resnet18.onnx+alexnet.onnx+resnet18.onnx+resnet18.onnx,heuristic,False,4,0.711,120,4.08,4,0.0,0.0
+0.7,1,True,0/0/0/0,816,0,11.157,816,0,19.336,True,0,mixed,resnet18.onnx+resnet18.onnx+alexnet.onnx+resnet18.onnx,heuristic,False,4,0.696,120,4.08,4,0.0,0.0
+0.8,0,True,0/0/0/0,1122,5,12.395,1122,0,15.221,True,0,mixed,alexnet.onnx+alexnet.onnx+alexnet.onnx+resnet18.onnx,heuristic,False,4,0.842,120,4.08,4,0.0,0.0
+0.8,1,True,0/0/0/0,952,2,13.446,952,1,20.635,True,0,mixed,resnet18.onnx+alexnet.onnx+resnet18.onnx+resnet18.onnx,heuristic,False,4,0.801,120,4.08,4,0.0,0.0
+0.9,0,True,0/0/0/0,1088,35,10.621,1088,0,22.007,True,0,mixed,resnet18.onnx+alexnet.onnx+alexnet.onnx+alexnet.onnx,heuristic,False,4,0.876,120,4.08,2,0.0,0.0
+0.9,1,True,0/0/0/0,1088,4,15.972,1088,0,15.339,True,0,mixed,alexnet.onnx+resnet18.onnx+alexnet.onnx+resnet18.onnx,heuristic,False,4,0.857,120,4.08,4,0.0,0.0

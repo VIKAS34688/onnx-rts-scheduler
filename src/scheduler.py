@@ -13,13 +13,16 @@ Rule 1 holds because session.run_with_iobinding() is a blocking call and
 only the dispatcher thread ever calls it (verified empirically with
 verify_no_overlap()).
 
-Chunk handoff (Rule 4) uses IOBinding: a chunk's output stays on the
-device and is fed directly to the next chunk (no host round-trip).
+Hand-over between chunks: every job keeps a "store" of the tensors that its later chunks
+still need, on the device, by name. A chunk reads the tensors it needs from the store and
+adds the tensors it makes (no host round-trip). With one tensor per cut (the paper's cuts)
+the store holds exactly one tensor; with multi-tensor cuts it holds several, including
+tensors that skip over a chunk, such as the backbone features a detector's neck reads late.
 
-A task's first chunk takes its input from make_input_feed(); the returned
-value may be a numpy array (uploaded here) or an already-uploaded OrtValue
-(used as is). on_complete(finish_time) is called once, after the last chunk
-of a job, with a time.perf_counter() timestamp.
+A job's first chunk takes its input from make_input_feed(); the returned value may be a
+numpy array (uploaded here) or an already-uploaded OrtValue (used as is).
+on_complete(finish_time) is called once, after the last chunk of a job, with a
+time.perf_counter() timestamp.
 """
 
 import heapq
@@ -54,16 +57,16 @@ class Task:
 
 class _ResumedTask:
     """
-    A job resuming after a Rule-5 preemption. Carries the previous chunk's
-    device-resident output, and keeps the original submission order (_seq)
-    so it is not overtaken by later jobs of the same priority.
+    A job resuming after a Rule-5 preemption. Carries the store of device tensors its remaining
+    chunks need, and keeps the original submission order (_seq) so it is not overtaken by later
+    jobs of the same priority.
     """
 
-    def __init__(self, original, resume_from, prev_output_ortvalue):
+    def __init__(self, original, resume_from, store):
         self.task_id = original.task_id
         self.priority = original.priority
         self.chunk_sessions = original.chunk_sessions[resume_from:]
-        self._prev_output_ortvalue = prev_output_ortvalue
+        self._store = store
         self.make_input_feed = original.make_input_feed
         self.on_complete = original.on_complete
         self.index_offset = original.index_offset + resume_from
@@ -116,25 +119,27 @@ class Scheduler:
             self._run_task_chunks(task)
 
     def _run_task_chunks(self, task):
-        prev_output_ortvalue = getattr(task, "_prev_output_ortvalue", None)
+        store = dict(getattr(task, "_store", {}))
+        sessions = task.chunk_sessions
+        feed = None
 
-        for chunk_index, session in enumerate(task.chunk_sessions):
-            input_name = session.get_inputs()[0].name
-            output_name = session.get_outputs()[0].name
+        for chunk_index, session in enumerate(sessions):
             io_binding = session.io_binding()
+            for meta in session.get_inputs():
+                if meta.name in store:
+                    value = store[meta.name]                     # made by an earlier chunk: already on the device
+                else:                                            # the job's real input (first chunk only)
+                    if feed is None:
+                        feed = task.make_input_feed(chunk_index, None)
+                    value = feed[meta.name]
+                    if not isinstance(value, ort.OrtValue):
+                        value = ort.OrtValue.ortvalue_from_numpy(value, DEVICE, 0)
+                io_binding.bind_ortvalue_input(meta.name, value)
+            out_names = [m.name for m in session.get_outputs()]
+            for name in out_names:
+                io_binding.bind_output(name, DEVICE)
 
-            if prev_output_ortvalue is None:
-                value = task.make_input_feed(chunk_index, None)[input_name]
-                input_ortvalue = (value if isinstance(value, ort.OrtValue)
-                                  else ort.OrtValue.ortvalue_from_numpy(value, DEVICE, 0))
-            else:
-                input_ortvalue = prev_output_ortvalue  # Rule 4 handoff, no host copy
-
-            io_binding.bind_ortvalue_input(input_name, input_ortvalue)
-            io_binding.bind_output(output_name, DEVICE)
-
-            # Rule 1 + Rule 3: blocking call; nothing else touches the GPU
-            # until this returns.
+            # Rule 1 + Rule 3: blocking call; nothing else touches the GPU until this returns.
             start = time.perf_counter()
             session.run_with_iobinding(io_binding)
             end = time.perf_counter()
@@ -146,9 +151,12 @@ class Scheduler:
                 "end": end,
             })
 
-            prev_output_ortvalue = io_binding.get_outputs()[0]
+            for name, value in zip(out_names, io_binding.get_outputs()):
+                store[name] = value
+            needed_later = {m.name for s in sessions[chunk_index + 1:] for m in s.get_inputs()}
+            store = {k: v for k, v in store.items() if k in needed_later}   # free what no later chunk reads
 
-            if chunk_index == len(task.chunk_sessions) - 1:
+            if chunk_index == len(sessions) - 1:
                 if task.on_complete is not None:
                     task.on_complete(end)
                 return
@@ -158,8 +166,7 @@ class Scheduler:
             with self._lock:
                 if self._queue and self._queue[0].priority < task.priority:
                     self._seq_counter += 1
-                    heapq.heappush(self._queue,
-                                   _ResumedTask(task, chunk_index + 1, prev_output_ortvalue))  # stores the remaining chunks and previous output so a yielded task can continue later.
+                    heapq.heappush(self._queue, _ResumedTask(task, chunk_index + 1, store))
                     self.preemptions += 1
                     return
 

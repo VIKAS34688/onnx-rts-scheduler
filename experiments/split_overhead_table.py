@@ -28,6 +28,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("models", nargs="+")
 ap.add_argument("--max-candidates", type=int, default=7)
 ap.add_argument("--runs", type=int, default=300)
+ap.add_argument("--multi", action="store_true", help="multi-tensor cuts (Option B)")
 args = ap.parse_args()
 
 os.makedirs("docs/phase2", exist_ok=True)
@@ -36,13 +37,14 @@ for path in args.models:
     stem = os.path.splitext(os.path.basename(path))[0]
     sample = make_sample(path)
     found = splitter.list_candidate_split_points(path)
-    used = pick_candidates(path, args.max_candidates)
-    print(f"\n=== {stem}: {len(found)} legal cuts found, {len(used)} used ===")
+    used = pick_candidates(path, args.max_candidates, multi=args.multi)
+    print(f"\n=== {stem}: {len(found)} single-tensor cuts found, {len(used)} used"
+          + (f" (multi-tensor: {used})" if args.multi else "") + " ===")
 
     inferred = onnx.shape_inference.infer_shapes(onnx.load(path))
     shapes = {vi.name: [d.dim_value for d in vi.type.tensor_type.shape.dim] for vi in inferred.graph.value_info}
     kb = []
-    for t in used:
+    for t in ([] if args.multi else used):
         shp = shapes.get(t, [])
         n = 1
         for d in shp:
@@ -62,7 +64,7 @@ for path in args.models:
         "chunk_p99_ms": [c["p99_ms"] for c in chunks], "chunk_p50_ms": [c["p50_ms"] for c in chunks],
         "cut_tensor_kb": kb,
     }
-    json.dump(row, open(f"docs/phase2/split_overhead_{stem}.json", "w"), indent=1)
+    json.dump(row, open(f"docs/phase2/split_overhead_{stem}{'_multi' if args.multi else ''}.json", "w"), indent=1)
     summary.append(row)
     print(f"  whole model : p50 {whole['p50_ms']:.3f} ms   p99 {whole['p99_ms']:.3f} ms")
     print(f"  {len(paths)} chunks   : sum p50 {s50:.3f} ms   sum p99 {s99:.3f} ms")
@@ -75,3 +77,4 @@ print(f"{'model':<14} {'found':>6} {'used':>5} {'whole p99':>10} {'split p99':>1
 for r in summary:
     print(f"{r['model']:<14} {r['legal_cuts_found']:>6} {r['cuts_used']:>5} {r['whole_p99_ms']:>9.2f}ms "
           f"{r['split_sum_p99_ms']:>8.2f}ms {r['overhead_pct_p99']:>+12.1f}% {r['overhead_pct_p50']:>+12.1f}%")
+    

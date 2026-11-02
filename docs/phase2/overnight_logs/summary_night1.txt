@@ -1,0 +1,3 @@
+started 2026-11-02 05:18   FINISHED
+
+alexnet_n3_u09           KILLED: no output for 10 min (hang)                12.4 min   rows in csv: 5

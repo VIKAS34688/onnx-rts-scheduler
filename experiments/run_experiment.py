@@ -15,6 +15,8 @@ Useful options:
   --model PATH         any ONNX model with one input and one output (default AlexNet)
   --max-candidates K   how many of the model's legal cut points the search may use
   --cand-idx I I ...   choose the candidate cuts yourself (indices into the legal-cut list)
+  --multi              multi-tensor cuts (Option B): cut after ANY block-ending node, even where several
+                       tensors cross, choosing --max-candidates cuts that balance the estimated work
   --method optimal     Algorithm 1 instead of the greedy Algorithm 2
   --snap               round periods to a fixed set so the task set has a hyperperiod, and
                        run for a whole number of hyperperiods (at least 10), as the paper does
@@ -48,12 +50,15 @@ CANDIDATE_IDX = [2, 5, 7, 9, 12, 14, 16]     # AlexNet: 7 block boundaries (used
 FIELDS = ["U", "set", "analysis_ok", "split_points", "baseline_jobs", "baseline_misses",
           "baseline_worst_ms", "sched_jobs", "sched_misses", "sched_worst_ms",
           "rule1_ok", "preemptions",
-          "model", "method", "n_tasks", "U_actual", "hyper_ms", "duration_s",
+          "model", "method", "multi", "n_tasks", "U_actual", "hyper_ms", "duration_s",
           "configs_evaluated", "opt_seconds", "profile_seconds"]
 
 
-def pick_candidates(model_path, k=7, cand_idx=None):
-    """The cut points the search may use: explicit indices, the AlexNet default, or k evenly spread legal cuts."""
+def pick_candidates(model_path, k=7, cand_idx=None, multi=False):
+    """The cut points the search may use: explicit indices, the AlexNet default, or k evenly spread legal cuts.
+    multi=True: k multi-tensor cuts ("@<node>") that balance the estimated work between the chunks."""
+    if multi:
+        return splitter.pick_multi_cuts(model_path, k)
     points = splitter.list_candidate_split_points(model_path)
     if cand_idx:
         return [points[i] for i in cand_idx]
@@ -93,6 +98,7 @@ def main():
     ap.add_argument("--model", default=MODEL)
     ap.add_argument("--max-candidates", type=int, default=7)
     ap.add_argument("--cand-idx", type=int, nargs="+", default=None)
+    ap.add_argument("--multi", action="store_true")
     ap.add_argument("--method", choices=["heuristic", "optimal"], default="heuristic")
     ap.add_argument("--snap", action="store_true")
     ap.add_argument("--fix-periods", action="store_true")
@@ -105,6 +111,7 @@ def main():
                     help="per-chunk dispatcher cost added to every chunk WCET in the analysis")
     ap.add_argument("--gc-off", action="store_true", help="disable Python garbage collection during timed runs")
     ap.add_argument("--cache-file", default=sch.CACHE_FILE)
+    ap.add_argument("--skip-speed-check", action="store_true")
     ap.add_argument("--out", default="experiments/results/results.csv")
     args = ap.parse_args()
     sch.DISPATCH_OVERHEAD_MS = args.overhead_ms
@@ -114,11 +121,21 @@ def main():
     print(f"[INFO] loaded {n_cached} cached chunk measurements from {args.cache_file}")
 
     sample = make_sample(model)
-    candidates = pick_candidates(model, args.max_candidates, args.cand_idx)
-    print(f"[INFO] {os.path.basename(model)}: {len(splitter.list_candidate_split_points(model))} legal cuts, "
-          f"{len(candidates)} used as candidates")
+    candidates = pick_candidates(model, args.max_candidates, args.cand_idx, args.multi)
+    print(f"[INFO] {os.path.basename(model)}: {len(splitter.list_candidate_split_points(model))} single-tensor cuts, "
+          f"{len(candidates)} candidates used" + (" (multi-tensor cuts: " + ", ".join(candidates) + ")" if args.multi else ""))
     c_whole = sch._profile_config(model, (), sample, sch.PROFILE_CACHE, "models/chunks_opt")[0]
     sch.save_profile_cache(args.cache_file)
+    if not args.skip_speed_check:
+        # the cached timings are only valid if the GPU is as fast as when they were measured
+        import profiler
+        now_p50 = profiler.profile_chunk(model, sample, n_runs=50)["p50_ms"]
+        cached_raw = c_whole - args.overhead_ms
+        if now_p50 > 1.25 * cached_raw:
+            raise SystemExit(f"[ABORT] the model takes {now_p50:.2f} ms now (median), but the cached 99th percentile is "
+                             f"{cached_raw:.2f} ms: the GPU is running slow (charger? Best performance? other programs?). "
+                             "Fix that and run again, or delete the cache file to re-measure, or add --skip-speed-check.")
+        print(f"[INFO] speed check passed: model takes {now_p50:.2f} ms now, cached p99 is {cached_raw:.2f} ms")
     c_periods = c_whole - args.overhead_ms if args.fix_periods else c_whole
     print(f"[INFO] whole-model WCET ({sch.WCET_STAT}) = {c_whole:.3f} ms (includes the dispatch overhead); "
           f"periods are built from {c_periods:.3f} ms")
@@ -168,7 +185,7 @@ def main():
                 "sched_worst_ms": round(sched["worst_response_ms"], 3) if sched else "",
                 "rule1_ok": sched["rule1_ok"] if sched else "",
                 "preemptions": sched["preemptions"] if sched else "",
-                "model": os.path.basename(model), "method": args.method, "n_tasks": args.n_tasks,
+                "model": os.path.basename(model), "method": args.method, "multi": args.multi, "n_tasks": args.n_tasks,
                 "U_actual": round(u_actual, 3), "hyper_ms": round(hyper_ms, 1), "duration_s": round(duration, 3),
                 "configs_evaluated": configs, "opt_seconds": round(opt_seconds, 3),
                 "profile_seconds": round(profile_seconds, 3),

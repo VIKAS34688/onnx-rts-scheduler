@@ -1,0 +1,14 @@
+started 2026-11-02 05:53   FINISHED
+
+alexnet_n3_u09           KILLED: no output for 10 min (hang)                12.0 min   rows in csv: 5
+alexnet_n3_h5_u06        OK                                                  7.2 min   rows in csv: 20
+alexnet_n3_o5_u06        OK                                                  7.1 min   rows in csv: 20
+alexnet_n3_h5_u07        OK                                                  7.2 min   rows in csv: 20
+alexnet_n3_o5_u07        OK                                                  7.2 min   rows in csv: 20
+alexnet_n3_h5_u08        OK                                                  7.3 min   rows in csv: 20
+alexnet_n3_o5_u08        OK                                                  7.1 min   rows in csv: 20
+alexnet_n3_h5_u09        OK                                                  6.7 min   rows in csv: 20
+alexnet_n3_o5_u09        OK                                                  6.7 min   rows in csv: 20
+yolo_n3_B_v2             OK                                                 13.7 min   rows in csv: 40
+baseline_sp_demo         OK                                                  0.3 min   rows in csv: 0
+mixed_quick              OK                                                  2.0 min   rows in csv: 8

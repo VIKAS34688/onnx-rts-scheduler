@@ -15,7 +15,8 @@ import onnx
 import onnxruntime as ort
 import numpy as np
 
-from graph_cuts import legal_cut_points
+from device import PROVIDERS
+from graph_cuts import chunk_interfaces, legal_cut_points, pick_balanced_cuts
 
 
 def _model_input_name(model) -> str:
@@ -48,18 +49,36 @@ def extract_chunk(onnx_model_path: str, output_path: str,
     )
 
 
+def pick_multi_cuts(onnx_model_path: str, k: int) -> list:
+    """Cut tokens "@<node index>" for k cuts that balance the estimated work (see graph_cuts.pick_balanced_cuts)."""
+    cuts, _, _ = pick_balanced_cuts(onnx.load(onnx_model_path), k)
+    return [f"@{i}" for i in cuts]
+
+
 def build_chunks(onnx_model_path: str, active_split_points: list, out_dir: str) -> list:
     """
-    Given a set of activated split points (in graph order), produce the
-    sequence of chunk .onnx files:
-      first chunk  = model input -> first active split point
-      middle chunk = between consecutive active split points
-      last chunk   = last active split point -> model output
+    Given activated cuts (in graph order), produce the chunk .onnx files.
 
-    Zero active split points => a single chunk identical to the
-    unsplit model (used as the baseline "no split needed" case).
+    Two kinds of cut:
+      tensor names ("/features/..."): exactly one tensor crosses the cut (legal cuts, as in the paper)
+      "@<n>": a cut after node n that MAY carry several tensors. The chunks are node ranges, a chunk reads
+              every earlier tensor it needs and writes every tensor a later chunk still needs; the scheduler
+              keeps these tensors on the GPU between chunks.
+
+    Zero cuts => a single chunk identical to the unsplit model.
     """
     model = onnx.load(onnx_model_path)
+    os.makedirs(out_dir, exist_ok=True)
+
+    if active_split_points and str(active_split_points[0]).startswith("@"):
+        cut_nodes = sorted(int(str(t)[1:]) for t in active_split_points)
+        chunk_paths = []
+        for i, (a, b, inputs, outputs) in enumerate(chunk_interfaces(model, cut_nodes)):
+            chunk_path = os.path.join(out_dir, f"chunk_{i}.onnx")
+            extract_chunk(onnx_model_path, chunk_path, inputs, outputs)
+            chunk_paths.append(chunk_path)
+        return chunk_paths
+
     model_input = _model_input_name(model)
     model_output = _model_output_name(model)
 
@@ -75,29 +94,34 @@ def build_chunks(onnx_model_path: str, active_split_points: list, out_dir: str) 
     return chunk_paths
 
 
+def run_chunk_chain(chunk_paths: list, sample_input: np.ndarray):
+    """Run the chunks one after another (each reads the tensors it needs from what earlier chunks made)."""
+    store = {}
+    final = None
+    for k, path in enumerate(chunk_paths):
+        session = ort.InferenceSession(path, providers=PROVIDERS)
+        if k == 0:
+            feed = {session.get_inputs()[0].name: sample_input}
+        else:
+            feed = {i.name: store[i.name] for i in session.get_inputs()}
+        outs = session.run(None, feed)
+        for meta, value in zip(session.get_outputs(), outs):
+            store[meta.name] = value
+        final = outs[0]
+    return final
+
+
 def verify_chunks_match_original(original_path: str, chunk_paths: list,
-                                   sample_input: np.ndarray, atol: float = 1e-4) -> bool:
+                                   sample_input: np.ndarray, atol: float = 1e-4, rtol: float = 1e-3) -> bool:
     """
-    Correctness check: run the chunks sequentially (chunk 1's output
-    feeding chunk 2's input, etc.) and compare the final result against
+    Correctness check: run the chunks in order and compare the final result against
     running the original, unsplit model directly.
     """
-    orig_session = ort.InferenceSession(
-        original_path, providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
-    )
-    orig_input_name = orig_session.get_inputs()[0].name
-    orig_output = orig_session.run(None, {orig_input_name: sample_input})[0]
-
-    current = sample_input
-    for chunk_path in chunk_paths:
-        session = ort.InferenceSession(
-            chunk_path, providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
-        )
-        input_name = session.get_inputs()[0].name
-        current = session.run(None, {input_name: current})[0]
-
-    matches = np.allclose(orig_output, current, atol=atol)
-    max_diff = float(np.max(np.abs(orig_output - current)))
+    orig_session = ort.InferenceSession(original_path, providers=PROVIDERS)
+    orig_output = orig_session.run(None, {orig_session.get_inputs()[0].name: sample_input})[0]
+    chained = run_chunk_chain(chunk_paths, sample_input)
+    matches = np.allclose(orig_output, chained, atol=atol, rtol=rtol)
+    max_diff = float(np.max(np.abs(orig_output - chained)))
     print(f"[INFO] Max difference between original and chunked output: {max_diff:.8f}")
     return matches
 

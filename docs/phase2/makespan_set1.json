@@ -1,0 +1,22 @@
+{
+ "models": [
+  "alexnet.onnx",
+  "vgg19.onnx",
+  "resnet18.onnx",
+  "inception_v4.onnx"
+ ],
+ "runs": 500,
+ "sequential": {
+  "mean_ms": 51.660515599069186,
+  "p50_ms": 51.00430001039058,
+  "p99_ms": 57.15229696652386,
+  "max_ms": 59.61190001107752
+ },
+ "concurrent": {
+  "mean_ms": 49.12969919957686,
+  "p50_ms": 49.08004999742843,
+  "p99_ms": 50.519513026229106,
+  "max_ms": 52.52870003459975
+ },
+ "concurrent_over_sequential_mean": 0.9510106244557512
+}
