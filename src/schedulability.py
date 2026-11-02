@@ -29,6 +29,7 @@ import os
 import time
 
 TICK_MS = 0.001  # one discrete time unit = 1 microsecond
+MAX_JOBS_CHECKED = 5000  # a schedulable set has K_i of a handful; more than this means the load is (nearly) 100%
 
 
 class RTSTask:
@@ -83,6 +84,12 @@ def busy_period(task, all_tasks, include_blocking=True, max_iters=1000, tol=1e-9
     B_i = blocking_factor(task, all_tasks) if include_blocking else 0.0
     heq = _higher_or_equal(all_tasks, task)
 
+    # If the tasks at this priority level and above need 100% of the GPU or more, the busy period
+    # never ends and no deadline can be guaranteed. Without this test the fixed-point iteration
+    # below grows without bound and K_i (the number of jobs to check) becomes astronomically large.
+    if sum(t.C / t.period_ms for t in heq) >= 1.0:
+        return float("inf"), None
+
     I = B_i + task.C
     for _ in range(max_iters):
         I_next = B_i + sum(math.ceil(I / t.period_ms) * t.C for t in heq)
@@ -98,6 +105,8 @@ def response_time(task, all_tasks, max_iters=1000, tol=1e-9) -> float:
     B_i = blocking_factor(task, all_tasks)
     higher = _strictly_higher(all_tasks, task)
     _, K_i = busy_period(task, all_tasks)
+    if K_i is None or K_i > MAX_JOBS_CHECKED:
+        return float("inf")
 
     worst_R = 0.0
     for k in range(1, K_i + 1):
@@ -127,6 +136,8 @@ def blocking_tolerance(task, all_tasks) -> float:
     higher = _strictly_higher(all_tasks, task)
     heq = higher + [task]
     _, K_i = busy_period(task, heq, include_blocking=False)
+    if K_i is None or K_i > MAX_JOBS_CHECKED:
+        return float("-inf")
 
     best_beta = float("inf")
     for k in range(1, K_i + 1):
