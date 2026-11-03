@@ -5,6 +5,7 @@ and check each export against PyTorch.
 Usage (project root, venv active; downloads the pretrained weights the first time):
     python scripts/export_models.py                 (vgg19, resnet18, inception_v4)
     python scripts/export_models.py resnet18        (just one)
+    python scripts/export_models.py googlenet mobilenet_v2 vgg16 densenet121   (the paper's second set)
 
 InceptionV4 comes from the 'timm' package (pip install timm); torchvision has none.
 """
@@ -26,6 +27,15 @@ def build(name):
     if name == "inception_v4":
         import timm
         return timm.create_model("inception_v4", pretrained=True), 299
+    # the paper's second model set for Figure 1
+    if name == "googlenet":
+        return tvm.googlenet(weights=tvm.GoogLeNet_Weights.DEFAULT), 224
+    if name == "mobilenet_v2":
+        return tvm.mobilenet_v2(weights=tvm.MobileNet_V2_Weights.DEFAULT), 224
+    if name == "vgg16":
+        return tvm.vgg16(weights=tvm.VGG16_Weights.DEFAULT), 224
+    if name == "densenet121":
+        return tvm.densenet121(weights=tvm.DenseNet121_Weights.DEFAULT), 224
     raise SystemExit(f"unknown model: {name}")
 
 

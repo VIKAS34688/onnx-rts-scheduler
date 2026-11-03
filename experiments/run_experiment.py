@@ -103,6 +103,8 @@ def main():
     ap.add_argument("--snap", action="store_true")
     ap.add_argument("--fix-periods", action="store_true")
     ap.add_argument("--sets", type=int, default=10, help="task sets per utilization")
+    ap.add_argument("--first-set", type=int, default=0,
+                    help="start at this set number (resume a stopped run: the finished sets are already in the CSV)")
     ap.add_argument("--duration", type=float, default=8.0, help="seconds per run")
     ap.add_argument("--n-tasks", type=int, default=4)
     ap.add_argument("--utils", type=float, nargs="+", default=[0.6, 0.7, 0.8, 0.9])
@@ -153,7 +155,7 @@ def main():
 
     t_start = time.time()
     for U in args.utils:
-        for s in range(args.sets):
+        for s in range(args.first_set, args.sets):
             rng = random.Random(f"{args.seed}-{U}-{s}")
             tasks = generate_task_set(args.n_tasks, U, c_periods, rng)
             hyper_ms, duration = 0.0, args.duration

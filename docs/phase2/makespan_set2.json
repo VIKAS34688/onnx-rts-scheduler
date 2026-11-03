@@ -1,0 +1,22 @@
+{
+ "models": [
+  "googlenet.onnx",
+  "mobilenet_v2.onnx",
+  "vgg16.onnx",
+  "densenet121.onnx"
+ ],
+ "runs": 500,
+ "sequential": {
+  "mean_ms": 33.95845340000142,
+  "p50_ms": 33.30239999991136,
+  "p99_ms": 42.27369599998383,
+  "max_ms": 44.45660000010321
+ },
+ "concurrent": {
+  "mean_ms": 29.90250779998678,
+  "p50_ms": 29.78660000007949,
+  "p99_ms": 32.45254800024212,
+  "max_ms": 39.08830000000307
+ },
+ "concurrent_over_sequential_mean": 0.8805615334644636
+}
