@@ -42,7 +42,7 @@ Paper: the heuristic is up to 38% faster than the optimal search.
 ## R1, R6, R7, R8
 | id | result | paper | ours | note |
 |---|---|---|---|---|
-| R1 | Concurrent against sequential makespan (Fig. 1) | similar makespans, sometimes worse; kernel concurrency as low as 1% | not run yet (makespan_test.py) |  |
+| R1 | Concurrent against sequential makespan (Fig. 1) | similar makespans, sometimes worse; kernel concurrency as low as 1% | set 1 (AlexNet, VGG19, ResNet18, InceptionV4): 49.13 ms concurrent vs 51.66 ms sequential, ratio 0.95; set 2 (GoogLeNet, MobileNetV2, VGG16, DenseNet121): 29.90 vs 33.96 ms, ratio 0.88; 500 runs each |  |
 | R6 | GPU memory, proposed against baseline (Table V) | -1% to +2% | one fully split AlexNet (8 chunk sessions) 530 MB against 544 MB for one whole-model session: -2.6% | per task; our tasks with the same split share one chunk set, which saves more |
 | R7 | Start-up time | at most 11.1 s (Jetson TX2) | 0.59 s for the 8-chunk set; 0.72 s for one whole-model session; 2.28 s for 4 whole-model sessions | different hardware, so only the trend compares |
 | R8 | Dispatch cost per chunk | 8 to 13 microseconds | gap between chunks: p50 0.08 to 0.11 ms, p99 0.18 to 0.35 ms (Phase 1) | about 10x the paper's: Python plus ONNX Runtime calls on Windows |

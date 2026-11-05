@@ -34,7 +34,7 @@ PAPER_SPLIT = {
 MANUAL = [
     ("R1", "Concurrent against sequential makespan (Fig. 1)",
      "similar makespans, sometimes worse; kernel concurrency as low as 1%",
-     "not run yet (makespan_test.py)", ""),
+     "set 1 (AlexNet, VGG19, ResNet18, InceptionV4): 49.13 ms concurrent vs 51.66 ms sequential, ratio 0.95; set 2 (GoogLeNet, MobileNetV2, VGG16, DenseNet121): 29.90 vs 33.96 ms, ratio 0.88; 500 runs each", ""),
     ("R6", "GPU memory, proposed against baseline (Table V)",
      "-1% to +2%",
      "one fully split AlexNet (8 chunk sessions) 530 MB against 544 MB for one whole-model session: -2.6%",
